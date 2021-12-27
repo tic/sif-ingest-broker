@@ -13,16 +13,8 @@ const MemoryCache = require("memory-cache").Cache;
 
 // Import custom packages
 const { Transform } = require("./lib/transformer");
-// TODO: import db
-
-
-// Initialize user authenticator
-const CognitoExpress = new cogExp({
-    region: config.REGION,
-    cognitoUserPoolId: config.USERPOOLID,
-    tokenUse: "access",
-    tokenExpiration: 3600000
-});
+const { validate } = require("./lib/tokens");
+const db = require("./lib/db");
 
 
 // Initialize caches
@@ -41,7 +33,7 @@ const ingestStream = mqtt.connect(config.INGEST_STREAM);
 
 
 // Set up mqtt handlers
-function onMessageReceive(topic, message) {
+async function onMessageReceive(topic, message) {
     try {
         console.log(topic, message.toString());
         const jsonIn = JSON.parse(message.toString());
@@ -49,17 +41,51 @@ function onMessageReceive(topic, message) {
             throw "Missing required property in inbound message";
         }
 
-        const irData = Transform(topic, jsonIn.data);
-
-        const forwardedPayload = {
-            app_id: "gmf.0",
-            data: irData
+        const validation = await validate(jsonIn.token);
+        if (validation.success === false) {
+            throw "Invalid token";
         }
 
-        ingestStream.publish(
-            "ingest/stream",
-            JSON.stringify(forwardedPayload)
-        );
+        if (validation.username === null) {
+            throw "Empty username";
+        }
+
+        const safeAppId = db.createAppId(validation.username, jsonIn.app_name);
+        if (/[\w\d]+_[\w\d]+/g.test(safeAppId)) {
+            throw "Unsafe app id";
+        }
+
+
+        const hypertableCached = AppCache.get(safeAppId);
+        const hypertableExists = false;
+        if (!hypertableCached) {
+            hypertableExists = await db.hypertableExists(safeAppId);
+            if (!hypertableExists) {
+                // Create the hypertable.
+            }
+        }
+
+        // The table is now guaranteed to exist. This message should be,
+        // treated as insert-able timeseries data ONLY IF the table was
+        // already in existence. This is true if the hypertable is either
+        // cached already or if the existence check came back positive.
+        if (hypertableCached || hypertableExists) {
+            const irData = Transform(topic, jsonIn.data);
+            const forwardedPayload = {
+                app_id: safeAppId,
+                data: irData
+            }
+
+            ingestStream.publish(
+                "ingest/stream",
+                JSON.stringify(forwardedPayload)
+            );
+        }
+
+        // Regardless of how we got here, the safeAppId should, at this
+        // point, be cached. It remains cached for an hour. After this,
+        // the system will consult with the hypertable once more.
+        AppCache.put(safeAppId, true, 3600*1000);
 
     } catch (err) {
         console.error(err);
