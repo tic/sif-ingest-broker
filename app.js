@@ -32,7 +32,10 @@ const publicBroker = mqtt.connect(config.PUBLIC_BROKER);
 const ingestStream = mqtt.connect(config.INGEST_STREAM);
 
 
-// Set up mqtt handlers
+// Runs every time a data ingest topic (data/#)
+// receives a message. It's job is to authenticate
+// the raw message and standardize the data into
+// the Intermediate Representation (IR) format.
 async function onMessageReceive(topic, message) {
     try {
         console.log(topic, message.toString());
@@ -51,36 +54,52 @@ async function onMessageReceive(topic, message) {
         }
 
         const safeAppId = db.createAppId(validation.username, jsonIn.app_name);
-        if (/[\w\d]+_[\w\d]+/g.test(safeAppId)) {
+        if (/[^\w\d]/.test(safeAppId)) {
             throw "Unsafe app id";
         }
 
+        const irData = Transform(topic, jsonIn.data);
 
         const hypertableCached = AppCache.get(safeAppId);
-        const hypertableExists = false;
+        let hypertableExists = false;
         if (!hypertableCached) {
+            console.log("[CACHE MISS] on app id %s", safeAppId);
             hypertableExists = await db.hypertableExists(safeAppId);
             if (!hypertableExists) {
-                // Create the hypertable.
+                // Goal: create the hypertable.
+                console.log("[HT] creating hypertable for app id %s", safeAppId);
+
+                // 1. Build the schema from the input
+                const schema = {
+                    metadata: {}
+                };
+                for (const [key, value] of Object.entries(irData.metadata)) {
+                    schema.metadata[key] = isNaN(parseFloat(value)) ? "TEXT" : "DOUBLE PRECISION";
+                }
+
+                // 2. Call db.constructHypertable(safeAppId, schema);
+                const created = await db.constructHypertable(safeAppId, schema);
+                if (!created) {
+                    throw "Failed to create hypertable";
+                }
+
+                console.log("[HT] proceeding to data insertion");
             }
         }
 
         // The table is now guaranteed to exist. This message should be,
-        // treated as insert-able timeseries data ONLY IF the table was
-        // already in existence. This is true if the hypertable is either
-        // cached already or if the existence check came back positive.
-        if (hypertableCached || hypertableExists) {
-            const irData = Transform(topic, jsonIn.data);
-            const forwardedPayload = {
-                app_id: safeAppId,
-                data: irData
-            }
-
-            ingestStream.publish(
-                "ingest/stream",
-                JSON.stringify(forwardedPayload)
-            );
+        // treated as normal, insert-able, timeseries data now.
+        const forwardedPayload = {
+            app_id: safeAppId,
+            data: irData
         }
+
+        // Publish the necessary data to the stream broker
+        ingestStream.publish(
+            "ingest/stream",
+            JSON.stringify(forwardedPayload)
+        );
+        console.log("published to stream broker");
 
         // Regardless of how we got here, the safeAppId should, at this
         // point, be cached. It remains cached for an hour. After this,
@@ -93,7 +112,7 @@ async function onMessageReceive(topic, message) {
 }
 
 
-// Attach handlers to mqtt
+// Attach handlers to mqtt brokers
 publicBroker.on("connect", () => {
     console.log("Connected to the public broker");
 });
