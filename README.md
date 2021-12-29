@@ -34,6 +34,27 @@ TS_PORT | PostgreSQL database port
 TS_DATABASE | PostgreSQL database name
 PGSSLROOTCERT | `/path/to/ca.pem` (path to CA certificate, used for opening an SSL connection with the database)
 
+### Launching the script
+Run the command:
+
+    node app.js
+
+#### Our launch script
+In our implementation of the SIF platform, we have a bash script that runs when our EC2 instances launch. While the single command above is sufficient for testing, this script may be useful in scenarios that necessitate a higher degree of automation. It uses `tmux`, a terminal multiplexing utility similar to the native `screen` utility.
+
+```bash
+#!/bin/bash
+
+# Spawn the MQTT broker (SIF-INGEST-BROKER)
+tmux new -s mosquitto -d
+tmux send-keys -t "mosquitto" "mosquitto" Enter
+
+# Spawn the data ingest handler
+tmux new -s ingest-broker -d
+tmux send-keys -t "ingest-broker" "cd ~/sif-ingest-broker" Enter
+tmux send-keys -t "ingest-broker" "node app.js" Enter
+```
+
 ## Sending data to the ingest-broker
 Once the MQTT broker and the SIF-ingest-broker script are both up and running, they are ready to receive data from users. As a sanity check, this script should print the following on startup (the order of the two "Connected" messages is not important):
 
