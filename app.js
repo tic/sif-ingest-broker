@@ -42,7 +42,7 @@ var channel = 0;
 // the Intermediate Representation (IR) format.
 async function onMessageReceive(topic, message) {
     try {
-        console.log(topic, message.toString());
+        //console.log(topic, message.toString());
         const jsonIn = JSON.parse(message.toString());
         if (!jsonIn.app_name || !jsonIn.token || !jsonIn.data) {
             throw "Missing required property in inbound message";
@@ -68,6 +68,7 @@ async function onMessageReceive(topic, message) {
         let hypertableExists = false;
         if (!hypertableCached) {
             console.log("[CACHE MISS] on app id %s", safeAppId);
+            await dbLock.lock();
             hypertableExists = await db.hypertableExists(safeAppId);
             if (!hypertableExists) {
                 // Goal: create the hypertable.
@@ -89,6 +90,12 @@ async function onMessageReceive(topic, message) {
 
                 console.log("[HT] proceeding to data insertion");
             }
+
+            // safeAppId remains cached for an hour. After this,
+            // the system will consult with the hypertable once more.
+            AppCache.put(safeAppId, true, 3600 * 1000);
+            console.log("[CACHED] app id %s", safeAppId);
+            await dbLock.unlock();
         }
 
         // The table is now guaranteed to exist. This message should be,
@@ -104,12 +111,7 @@ async function onMessageReceive(topic, message) {
             JSON.stringify(forwardedPayload)
         );
         channel = !channel + 0;
-        console.log("published to stream broker");
-
-        // Regardless of how we got here, the safeAppId should, at this
-        // point, be cached. It remains cached for an hour. After this,
-        // the system will consult with the hypertable once more.
-        AppCache.put(safeAppId, true, 3600*1000);
+        //console.log("published to stream broker");
 
     } catch (err) {
         console.error(err);
