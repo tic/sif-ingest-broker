@@ -32,6 +32,10 @@ const publicBroker = mqtt.connect(config.PUBLIC_BROKER);
 const ingestStream = mqtt.connect(config.INGEST_STREAM);
 
 
+// Initialize channel variable
+var channel = 0;
+
+
 // Runs every time a data ingest topic (data/#)
 // receives a message. It's job is to authenticate
 // the raw message and standardize the data into
@@ -96,9 +100,10 @@ async function onMessageReceive(topic, message) {
 
         // Publish the necessary data to the stream broker
         ingestStream.publish(
-            "ingest/stream",
+            "ingest/stream/" + channel,
             JSON.stringify(forwardedPayload)
         );
+        channel = !channel + 0;
         console.log("published to stream broker");
 
         // Regardless of how we got here, the safeAppId should, at this
