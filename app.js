@@ -79,7 +79,7 @@ async function onMessageReceive(topic, message) {
                     metadata: {}
                 };
                 for (const [key, value] of Object.entries(irData.metadata)) {
-                    schema.metadata[key] = isNaN(parseFloat(value)) ? "TEXT" : "DOUBLE PRECISION";
+                    schema.metadata[key] = Number.isFinite(value) ? "DOUBLE PRECISION" : "TEXT";
                 }
 
                 // 2. Call db.constructHypertable(safeAppId, schema);
