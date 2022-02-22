@@ -36,6 +36,24 @@ const ingestStream = mqtt.connect(config.INGEST_STREAM);
 var channel = 0;
 
 
+// Create error classes
+// Source: https://stackoverflow.com/questions/1382107/whats-a-good-way-to-extend-error-in-javascript/1382129#1382129
+class PayloadError extends Error {
+    constructor(message, user) {
+        super(message);
+        this.user = user;
+        this.name = "PayloadError";
+    }
+}
+class NamingError extends Error {
+    constructor(message, user) {
+        super(message);
+        this.user = user;
+        this.name = "NamingError";
+    }
+}
+
+
 // Runs every time a data ingest topic (data/#)
 // receives a message. It's job is to authenticate
 // the raw message and standardize the data into
@@ -44,22 +62,31 @@ async function onMessageReceive(topic, message) {
     try {
         //console.log(topic, message.toString());
         const jsonIn = JSON.parse(message.toString());
-        if (!jsonIn.app_name || !jsonIn.token || !jsonIn.data) {
-            throw "Missing required property in inbound message";
+
+        if (!jsonIn.token) {
+            throw new Error("no token provided");
         }
 
         const validation = await validate(jsonIn.token);
         if (validation.success === false) {
-            throw "Invalid token";
+
+            throw new Error("Invalid token. Identity could not be verified. Is this a Cognito Identity token?");
         }
 
         if (validation.username === null) {
-            throw "Empty username";
+            throw new Error("Empty username");
+        }
+
+        if (!jsonIn.app_name || !jsonIn.data) {
+            throw new PayloadError(
+                "Missing required property in inbound message (needs app_name, token, and data)",
+                validation.username
+            );
         }
 
         const safeAppId = db.createAppId(validation.username, jsonIn.app_name);
         if (/[^\w\d]/.test(safeAppId)) {
-            throw "Unsafe app id";
+            throw new NamingError("Unsafe app id", validation.username);
         }
 
         const irData = Transform(topic, jsonIn.data);
@@ -114,7 +141,20 @@ async function onMessageReceive(topic, message) {
         //console.log("published to stream broker");
 
     } catch (err) {
-        console.error(err);
+        if (
+            error instanceof PayloadError
+            || error instanceof NamingError
+        ) {
+            // Log the error to the error table
+            const errorStr = err.toString();
+            const username = err.user;
+            if (!username || await db.logError(username, errorStr) === false) {
+                console.error("Failed to log error:");
+                console.error(err);
+            }
+        } else {
+            console.error(err);
+        }
     }
 }
 
