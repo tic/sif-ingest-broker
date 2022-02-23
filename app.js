@@ -39,16 +39,18 @@ var channel = 0;
 // Create error classes
 // Source: https://stackoverflow.com/questions/1382107/whats-a-good-way-to-extend-error-in-javascript/1382129#1382129
 class PayloadError extends Error {
-    constructor(message, appId) {
+    constructor(message, appId, device) {
         super(message);
         this.appId = appId;
+        this.device = device || '';
         this.name = "PayloadError";
     }
 }
 class NamingError extends Error {
-    constructor(message, appId) {
+    constructor(message, appId, device) {
         super(message);
         this.appId = appId;
+        this.device = device || '';
         this.name = "NamingError";
     }
 }
@@ -80,13 +82,14 @@ async function onMessageReceive(topic, message) {
         if (!jsonIn.app_name || !jsonIn.data) {
             throw new PayloadError(
                 "invalid blob",
-                `${validation.username}_${jsonIn.app_name || ''}`
+                `${validation.username}_${jsonIn.app_name || ''}`,
+                null
             );
         }
 
         const safeAppId = db.createAppId(validation.username, jsonIn.app_name);
         if (/.*[^\w\d]+.*/.test(safeAppId)) {
-            throw new NamingError("unsafe app name", safeAppId);
+            throw new NamingError("unsafe app name", safeAppId, null);
         }
 
         const irData;
@@ -161,7 +164,8 @@ async function onMessageReceive(topic, message) {
             // Log the error to the error table
             const errorStr = err.toString().substring(7);
             const appId = err.appId;
-            if (!username || await db.logError(appId, errorStr) === false) {
+            const device = err.device;
+            if (!username || await db.logError(appId, errorStr, device) === false) {
                 console.error("Failed to log error:");
                 console.error(err);
             }
