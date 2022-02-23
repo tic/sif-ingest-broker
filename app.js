@@ -12,7 +12,7 @@ const MemoryCache = require("memory-cache").Cache;
 
 
 // Import custom packages
-const { Transform } = require("./lib/transformer");
+const { Transform, TransformError } = require("./lib/transformer");
 const { validate } = require("./lib/tokens");
 const db = require("./lib/db");
 
@@ -39,16 +39,16 @@ var channel = 0;
 // Create error classes
 // Source: https://stackoverflow.com/questions/1382107/whats-a-good-way-to-extend-error-in-javascript/1382129#1382129
 class PayloadError extends Error {
-    constructor(message, user) {
+    constructor(message, appId) {
         super(message);
-        this.user = user;
+        this.appId = appId;
         this.name = "PayloadError";
     }
 }
 class NamingError extends Error {
-    constructor(message, user) {
+    constructor(message, appId) {
         super(message);
-        this.user = user;
+        this.appId = appId;
         this.name = "NamingError";
     }
 }
@@ -79,17 +79,29 @@ async function onMessageReceive(topic, message) {
 
         if (!jsonIn.app_name || !jsonIn.data) {
             throw new PayloadError(
-                "Missing required property in inbound message (needs app_name, token, and data)",
-                validation.username
+                "invalid blob",
+                `${validation.username}_${jsonIn.app_name || ''}`
             );
         }
 
         const safeAppId = db.createAppId(validation.username, jsonIn.app_name);
-        if (/[^\w\d]/.test(safeAppId)) {
-            throw new NamingError("Unsafe app id", validation.username);
+        if (/.*[^\w\d]+.*/.test(safeAppId)) {
+            throw new NamingError("unsafe app name", safeAppId);
         }
 
-        const irData = Transform(topic, jsonIn.data);
+        const irData;
+        try {
+            irData = Transform(topic, jsonIn.data);
+        } catch (err) {
+            // If this isn't a TransformError, bubble up immediately
+            if (!(err instanceof TransformError)) {
+                throw err;
+            }
+
+            // Otherwise, add the appId first, then bubble up
+            err.appId = safeAppId;
+            throw err;
+        }
 
         const hypertableCached = AppCache.get(safeAppId);
         let hypertableExists = false;
@@ -144,11 +156,12 @@ async function onMessageReceive(topic, message) {
         if (
             error instanceof PayloadError
             || error instanceof NamingError
+            || error instanceof TransformError
         ) {
             // Log the error to the error table
-            const errorStr = err.toString();
-            const username = err.user;
-            if (!username || await db.logError(username, errorStr) === false) {
+            const errorStr = err.toString().substring(7);
+            const appId = err.appId;
+            if (!username || await db.logError(appId, errorStr) === false) {
                 console.error("Failed to log error:");
                 console.error(err);
             }
