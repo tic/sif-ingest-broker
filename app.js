@@ -92,7 +92,7 @@ async function onMessageReceive(topic, message) {
             throw new NamingError("unsafe app name", safeAppId, null);
         }
 
-        const irData;
+        let irData;
         try {
             irData = Transform(topic, jsonIn.data);
         } catch (err) {
