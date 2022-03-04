@@ -2,58 +2,37 @@
 
 
 // Load configuration variables
-const { config } = require("./lib/config");
+const { config } = require("./config");
 
 
 // Import libraries
-const cogExp = require("cognito-express");
-const mqtt = require("mqtt");
 const MemoryCache = require("memory-cache").Cache;
 
 
 // Import custom packages
-const { Transform, TransformError } = require("./lib/transformer");
-const { validate } = require("./lib/tokens");
-const db = require("./lib/db");
+const { Transform, TransformError } = require("./transform");
+const { validateToken } = require("./cognito");
+const db = require("./db");
+const { publicBroker, ingestStream } = require("./mqtt");
 
 
-// Initialize caches
+// Initialize cache. We use the cache for
+// tracking whether app tables already exist
+// and avoiding an expensive (time) check.
 const AppCache = new MemoryCache();
-const MetricsCache = new MemoryCache();
 
 
 // Initialize db lock
 // --> usage: await dbLock.lock(); <--> await dbLock.unlock();
-const dbLock = require("./lib/dbLock");
-
-
-// Establish mqtt connections
-const publicBroker = mqtt.connect(config.PUBLIC_BROKER);
-const ingestStream = mqtt.connect(config.INGEST_STREAM);
+const dbLock = require("./db/dbLock");
 
 
 // Initialize channel variable
 var channel = 0;
 
 
-// Create error classes
-// Source: https://stackoverflow.com/questions/1382107/whats-a-good-way-to-extend-error-in-javascript/1382129#1382129
-class PayloadError extends Error {
-    constructor(message, appId, device) {
-        super(message);
-        this.appId = appId;
-        this.device = device || '';
-        this.name = "PayloadError";
-    }
-}
-class NamingError extends Error {
-    constructor(message, appId, device) {
-        super(message);
-        this.appId = appId;
-        this.device = device || '';
-        this.name = "NamingError";
-    }
-}
+// Import error classes
+const { PayloadError, NamingError } = require("./errors");
 
 
 // Runs every time a data ingest topic (data/#)
@@ -157,9 +136,9 @@ async function onMessageReceive(topic, message) {
 
     } catch (err) {
         if (
-            error instanceof PayloadError
-            || error instanceof NamingError
-            || error instanceof TransformError
+            err instanceof PayloadError
+            || err instanceof NamingError
+            || err instanceof TransformError
         ) {
             // Log the error to the error table
             const errorStr = err.toString().substring(7);
@@ -176,15 +155,10 @@ async function onMessageReceive(topic, message) {
 }
 
 
-// Attach handlers to mqtt brokers
-publicBroker.on("connect", () => {
-    console.log("Connected to the public broker");
-});
+// Attach message handler to the public broker.
 publicBroker.on("message", onMessageReceive);
 
-ingestStream.on("connect", () => {
-    console.log("Connected to the ingest stream");
-    publicBroker.subscribe("data/#", () => {
-        console.log("Subscribed to all data routes on the public broker");
-    });
-});
+
+// Launch the custom source listener
+const { launchCustomSourceListener } = require("./customSources");
+launchCustomSourceListener();

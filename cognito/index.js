@@ -1,5 +1,5 @@
 // Load the broker configuration
-const { config } = require('./config');
+const { config } = require("../config");
 
 
 // Initialize the AWS Cognito connector
@@ -20,7 +20,7 @@ const CognitoExpress = new (require("cognito-express"))({
 //     groups: array[string] --> array of groups which the user is a part of
 //     error: string --> if an error is encountered, it will be returned here
 // }
-async function validateAuthToken(token) {
+async function validateCognitoAuthToken(token) {
     const { error, user } = await new Promise((resolve, _) => {
         CognitoExpress.validate(token, (err, user) => {
             if (err) resolve({
@@ -47,5 +47,5 @@ async function validateAuthToken(token) {
 }
 
 module.exports = {
-    validate: validateAuthToken
+    validateToken: validateCognitoAuthToken
 };

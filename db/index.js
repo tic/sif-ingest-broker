@@ -5,7 +5,7 @@ const format = require('pg-format');
 
 
 // Load the configuration file
-const { config } = require('./config');
+const { config } = require('../config');
 
 
 // Create a connection pool to the database
@@ -50,6 +50,16 @@ VALUES ($1, $2, $3)
 ON CONFLICT ON CONSTRAINT unique_error_src
 DO
     UPDATE SET timestamp=NOW();
+`;
+
+
+// Blank template for retrieving the list of
+// custom sources from the sources table.
+const QUERY_CUSTOM_SOURCES = `
+SELECT * 
+FROM "sources" 
+WHERE id>=$1 
+ORDER BY id asc;
 `;
 
 
@@ -110,7 +120,7 @@ async function constructHypertable(appId, schema) {
         );
 
         // 4. Add compression policy
-        const queryCompressionPolicy = `SELECT add_compression_policy('%I', INTERVAL '7d')`;
+        const queryCompressionPolicy = `SELECT add_compression_policy('%I', INTERVAL '4d')`;
         await query(
             format(
                 queryCompressionPolicy,
@@ -142,9 +152,27 @@ async function logError(appId, error, device) {
 }
 
 
+// Retrieves the list of custom sources from the
+// source table.
+async function fetchSources(minimumId) {
+    const minId = minimumId ?? 0;
+    try {
+        const dbResponse = await query(
+            QUERY_CUSTOM_SOURCES,
+            [minId]
+        );
+        return dbResponse.rows;
+    } catch(err) {
+        console.error(err);
+        return false;
+    }
+}
+
+
 // Export necessary functions
 module.exports = {
     createAppId: createAppId,
     constructHypertable: constructHypertable,
-    hypertableExists: hypertableExists
+    hypertableExists: hypertableExists,
+    fetchSources: fetchSources
 };
