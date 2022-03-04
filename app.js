@@ -48,7 +48,7 @@ async function onMessageReceive(topic, message) {
             throw new Error("no token provided");
         }
 
-        const validation = await validate(jsonIn.token);
+        const validation = await validateToken(jsonIn.token);
         if (validation.success === false) {
 
             throw new Error("Invalid token. Identity could not be verified. Is this a Cognito Identity token?");
