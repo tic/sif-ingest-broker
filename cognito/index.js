@@ -23,10 +23,33 @@ const CognitoExpress = new (require("cognito-express"))({
 async function validateCognitoAuthToken(token) {
     const { error, user } = await new Promise((resolve, _) => {
         CognitoExpress.validate(token, (err, user) => {
-            if (err) resolve({
-                error: err,
-                user: null
-            });
+            if (err) {
+                // Optional code which could, eventually, be used to
+                // check if an access token was accidentially provided
+                // and, if so, verify that and use the resulting info
+                // to either report an error to the error log or just
+                // to proceed with the username found in that token.
+                // var base64Url = token.split('.')[1];
+                // var base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+                // var jsonPayload = 
+                //     decodeURIComponent(
+                //         Buffer.from(
+                //             base64, 
+                //             'base64'
+                //         )
+                //         .toString()
+                //         .split('')
+                //         .map(function(c) {
+                //             return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+                //         })
+                //         .join(''));
+                // console.log(jsonPayload);
+
+                resolve({
+                    error: err,
+                    user: null
+                });
+            }
             else if (!user) resolve({
                 error: "Could not parse valid user from token",
                 user: null
