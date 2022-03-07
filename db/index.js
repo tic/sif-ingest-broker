@@ -9,20 +9,31 @@ const { config } = require('../config');
 
 
 // Create a connection pool to the database
-const pool = new Pool({
+const dataPool = new Pool({
     user: config.TS_USER,
     host: config.TS_HOST,
     database: config.TS_DATABASE,
     password: config.TS_PASSWD,
     port: config.TS_PORT,
-    ssl: parseSsl()
+    // ssl: parseSsl()
 });
+
+const trackingPool = new Pool({
+    user: config.TS_USER,
+    host: config.TS_HOST,
+    database: config.TS_DATABASE_TRACKING,
+    password: config.TS_PASSWD,
+    port: config.TS_PORT,
+    // ssl: parseSsl()
+})
 
 
 // Executes the query given by @text using SQL
 // parameters provided by @params.
-async function query(text, params) {
+async function query(isDataPool, text, params) {
     // const start = Date.now();
+    const pool = isDataPool ? dataPool : trackingPool;
+    console.log(isDataPool ? "data" : "tracking", text, params);
     const res = await pool.query(text, params);
     // const duration = Date.now() - start;
     // console.log("executed query", { text, duration, rows: res.rowCount });
@@ -66,7 +77,7 @@ ORDER BY id asc;
 // Given a table, returns a boolean value according
 // to whether a hypertable with that name exists.
 async function hypertableExists(table) {
-    const result = await query(QUERY_EXISTS, [table]);
+    const result = await query(true, QUERY_EXISTS, [table]);
     return result.rows[0] && result.rows[0].exists === true;
 }
 
@@ -85,15 +96,27 @@ function createAppId(username, appName) {
 // table schema, create a table and convert it into
 // a hypertable. Returns a boolean according to the
 // success of these operations.
-async function constructHypertable(appId, schema) {
+async function constructHypertable(appId, schema, stringData) {
     try {
         // 1. Create a table according to the provided schema
         const metadataColumns = [
             "time TIMESTAMPTZ NOT NULL",
-            "metric TEXT NOT NULL",
+            "metric VARCHAR(128) NOT NULL",
             "value DOUBLE PRECISION NOT NULL"
         ];
-        const parametersCreateTable = [appId]
+        const parametersCreateTable = [appId];
+        
+        stringData.forEach(columnName => {
+            // String data columns shouldn't be counted as metadata.
+            // If a user supplied the name twice, favor string data.
+            delete schema[columnName];
+
+            // Varchar is used here for the same reason we defaulted
+            // non-numeric types to varchar in app.js.
+            metadataColumns.push(`%I VARCHAR(128)`);
+            parametersCreateTable.push(columnName);
+        });
+
         for (const [key, value] of Object.entries(schema.metadata)) {
             metadataColumns.push(`%I ${value}`);
             parametersCreateTable.push(key);
@@ -102,26 +125,49 @@ async function constructHypertable(appId, schema) {
             `CREATE TABLE %I (` + metadataColumns.join(", ") + ");",
             ...parametersCreateTable
         );
-        await query(queryCreateTable);
+        await query(true, queryCreateTable);
 
         // 2. Convert it into a hypertable
         const queryConversion = `SELECT create_hypertable('%I', 'time')`;
         await query(
+            true,
             format(queryConversion, appId)
         );
 
         // 3. Enable compression
-        const queryCompression = `ALTER TABLE %I SET(timescaledb.compress, timescaledb.compress_segmentby='metric')`
+        const segmentingColumns = [
+            "metric",
+            ...Object.entries(schema.metadata)
+                .filter(
+                    ([, dataType]) => 
+                        dataType !== "DOUBLE PRECISION"
+                )
+                .map(
+                    ([columnName, ]) => columnName
+                )
+        ];
+        const queryCompression = 
+            `ALTER TABLE %I SET(timescaledb.compress, timescaledb.compress_segmentby='${
+                new Array(segmentingColumns.length).fill("%I").join(",")
+            }')`;
+
+
+        console.log(queryCompression);
+        console.log([appId, ...segmentingColumns]);
+
         await query(
+            true,
             format(
                 queryCompression,
-                appId
+                appId, 
+                ...segmentingColumns
             )
         );
 
         // 4. Add compression policy
-        const queryCompressionPolicy = `SELECT add_compression_policy('%I', INTERVAL '4d')`;
+        const queryCompressionPolicy = `SELECT add_compression_policy('%I', INTERVAL '7d')`;
         await query(
+            true,
             format(
                 queryCompressionPolicy,
                 appId
@@ -141,6 +187,7 @@ async function constructHypertable(appId, schema) {
 async function logError(appId, error, device) {
     try {
         await query(
+            false,
             QUERY_ERROR_INS,
             [appId, error, device || '']
         );
@@ -158,6 +205,7 @@ async function fetchSources(minimumId) {
     const minId = minimumId ?? 0;
     try {
         const dbResponse = await query(
+            false,
             QUERY_CUSTOM_SOURCES,
             [minId]
         );

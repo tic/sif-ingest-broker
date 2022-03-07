@@ -100,11 +100,25 @@ async function onMessageReceive(topic, message) {
                     metadata: {}
                 };
                 for (const [key, value] of Object.entries(irData.metadata)) {
-                    schema.metadata[key] = Number.isFinite(value) ? "DOUBLE PRECISION" : "TEXT";
+                    // Metadata strings can be up to 128 characters long.
+                    // This limit is somewhat arbitrarily chosen, and is
+                    // elligible for change, if desired. The main reason 
+                    // for using a fixed-max-length varchar is because it 
+                    // seems to require less overhead than the text type.
+                    schema.metadata[key] = Number.isFinite(value) ? "DOUBLE PRECISION" : "VARCHAR(128)";
                 }
 
+                // If string data is provied in packet 0, recognize it.
+                // Srting data is highlighted by seeking out metrics
+                // which end with "_data" and map to non-numerica data.
+                const stringData = 
+                    Object.entries(irData.payload)
+                    .filter(([columnName, data]) => !Number.isFinite(data) && /\_data$/.test(columnName))
+                    .map(([columnName, ]) => columnName);
+                console.log("found string data: %s", stringData.toString());
+
                 // 2. Call db.constructHypertable(safeAppId, schema);
-                const created = await db.constructHypertable(safeAppId, schema);
+                const created = await db.constructHypertable(safeAppId, schema, stringData);
                 if (!created) {
                     throw "Failed to create hypertable";
                 }
