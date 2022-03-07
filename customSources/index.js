@@ -73,17 +73,23 @@ function generateTtnHandler(username, backupAppName) {
                     time: new Date(isoTimestamp).getTime() / 1000,
                     device: device,
                     metadata: parsed.uplink_message.decoded_payload.metadata ?? {},
-                    payload: parsed.uplink_message.decoded_payload ?? {}
+                    payload: parsed.uplink_message.decoded_payload.payload ?? {}
                 }
             }
 
             // Forward the packet to the stream broker.
             console.log(sifPacket);
 
-            ingestStream.publish(
-                "ingest/stream/" + publishingChannel,
-                JSON.stringify(sifPacket)
-            );
+
+            // TODO: Before uncommenting the command to foward
+            // the packet to the stream processor, logic needs
+            // to be added which creates the hypertable which
+            // the packet is destined for. (mostly copy-able
+            // from the vanilla ingest broker control flow!) :D
+            // ingestStream.publish(
+            //     "ingest/stream/" + publishingChannel,
+            //     JSON.stringify(sifPacket)
+            // );
 
             publishingChannel = !publishingChannel + 0;
         } catch(err) {
