@@ -33,7 +33,7 @@ const trackingPool = new Pool({
 async function query(isDataPool, text, params) {
     // const start = Date.now();
     const pool = isDataPool ? dataPool : trackingPool;
-    console.log(isDataPool ? "data" : "tracking", text, params);
+    // console.log(isDataPool ? "data" : "tracking", text, params);
     const res = await pool.query(text, params);
     // const duration = Date.now() - start;
     // console.log("executed query", { text, duration, rows: res.rowCount });
