@@ -222,5 +222,6 @@ module.exports = {
     createAppId: createAppId,
     constructHypertable: constructHypertable,
     hypertableExists: hypertableExists,
-    fetchSources: fetchSources
+    fetchSources: fetchSources,
+    logError: logError
 };
