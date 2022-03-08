@@ -5,14 +5,7 @@
 // Import libraries and custom packages.
 const mqtt = require("mqtt");
 const db = require("../db");
-const { ingestStream } = require("../mqtt");
-const { NamingError } = require("../errors");
-
-
-// Until true multi-client MQTT is supported by
-// the stream broker, we use a simple technique
-// to split the data between two ingest channels.
-var publishingChannel = 0;
+const { handler } = require("../handler");
 
 
 // "Bookmark" variables that track which sources
@@ -48,15 +41,8 @@ function generateTtnHandler(username, backupAppName) {
             // is unavailable for some reason, we use a backup app
             // called ttn-mqtt-X, where X is a globally unique number.
             const appName = parsed.uplink_message.decoded_payload.app_name
-                            ?? parsed.end_device_ids.application_ids.application_id
-                            ?? backupAppName;
-            const safeAppId = db.createAppId(username, parsed.end_device_ids.application_ids.application_id);
-            
-            // Throw a naming error if SIF doesn't support 1+ 
-            // characters present in the app name we're using.
-            if(/.*[^\w\d-]+.*/.test(safeAppId)) {
-                throw new NamingError("unsafe app name", safeAppId, device);
-            }
+                            || parsed.end_device_ids.application_ids.application_id
+                            || backupAppName;
 
             // TTN messages contain a received_at ISO timestamp. By
             // default, we're going to use that as the data timestamp.
@@ -65,33 +51,20 @@ function generateTtnHandler(username, backupAppName) {
             const isoTimestamp = parsed.uplink_message.decoded_payload.time
                                 ?? parsed.received_at;
 
-            // Build a stream-broker-compatible data packet
-            // using the information we have collected.
-            const sifPacket = {
-                appId: safeAppId,
-                data: {
+            // Invoke the SIF data handler with the
+            // pre-processed incoming data.
+            handler(
+                "data/ingest/passthrough",
+                username,
+                appName,
+                {
                     time: new Date(isoTimestamp).getTime() / 1000,
                     device: device,
                     metadata: parsed.uplink_message.decoded_payload.metadata ?? {},
                     payload: parsed.uplink_message.decoded_payload.payload ?? {}
                 }
-            }
-
-            // Forward the packet to the stream broker.
-            console.log(sifPacket);
-
-
-            // TODO: Before uncommenting the command to foward
-            // the packet to the stream processor, logic needs
-            // to be added which creates the hypertable which
-            // the packet is destined for. (mostly copy-able
-            // from the vanilla ingest broker control flow!) :D
-            // ingestStream.publish(
-            //     "ingest/stream/" + publishingChannel,
-            //     JSON.stringify(sifPacket)
-            // );
-
-            publishingChannel = !publishingChannel + 0;
+            );
+            
         } catch(err) {
             console.error(err);
         }
