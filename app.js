@@ -57,7 +57,7 @@ async function onMessageReceive(topic, message) {
             );
         }
     } catch(err) {
-        console.err(err);
+        console.error(err);
     }
 }
 
