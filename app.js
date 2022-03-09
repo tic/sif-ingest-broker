@@ -37,14 +37,25 @@ async function onMessageReceive(topic, message) {
             throw new Error("Empty username");
         }
 
-        // Invoke the SIF data handler with the topic,
-        // username, and incoming JSON data blob.
-        handler(
-            topic,
-            validation.username,
-            jsonIn.app_name,
-            jsonIn.data
-        );
+        if(Array.isArray(jsonIn.data)) {
+            jsonIn.data.forEach(data => {
+                handler(
+                    topic,
+                    validation.username,
+                    jsonIn.app_name,
+                    data
+                );
+            });
+        } else {
+            // Invoke the SIF data handler with the topic,
+            // username, and incoming JSON data blob.
+            handler(
+                topic,
+                validation.username,
+                jsonIn.app_name,
+                jsonIn.data
+            );
+        }
     } catch(err) {
         console.err(err);
     }

@@ -32,38 +32,47 @@ function generateTtnHandler(username, backupAppName) {
             // Parse the message packet into a JSON
             const parsed = JSON.parse(message.toString());
 
-            // For TTN applications, we can pull the application id
-            // right out of the message packet. However, some users
-            // might want a single TTN application to funnel data
-            // into >1 SIF app. So, we first search the user-defined
-            // payload area for an app name. If one was not provided,
-            // we use the on TTN provides. In the case that this name
-            // is unavailable for some reason, we use a backup app
-            // called ttn-mqtt-X, where X is a globally unique number.
-            const appName = parsed.uplink_message.decoded_payload.app_name
-                            || parsed.end_device_ids.application_ids.application_id
-                            || backupAppName;
+            const payload_arr = 
+                Array.isArray(parsed.uplink_message.decoded_payload) 
+                ? parsed.uplink_message.decoded_payload 
+                : [parsed.uplink_message.decoded_payload];
+            
+            payload_arr.forEach(payload => {
+                // For TTN applications, we can pull the application id
+                // right out of the message packet. However, some users
+                // might want a single TTN application to funnel data
+                // into >1 SIF app. So, we first search the user-defined
+                // payload area for an app name. If one was not provided,
+                // we use the on TTN provides. In the case that this name
+                // is unavailable for some reason, we use a backup app
+                // called ttn-mqtt-X, where X is a globally unique number.
+                const appName = 
+                    payload.app_name
+                    || parsed.end_device_ids.application_ids.application_id
+                    || backupAppName;
+    
+                // TTN messages contain a received_at ISO timestamp. By
+                // default, we're going to use that as the data timestamp.
+                // However, this can be overridden by adding a `time` key
+                // into the `decoded_payload` section of the packet.
+                const isoTimestamp = 
+                    payload.time
+                    ?? parsed.received_at;
 
-            // TTN messages contain a received_at ISO timestamp. By
-            // default, we're going to use that as the data timestamp.
-            // However, this can be overridden by adding a `time` key
-            // into the `decoded_payload` section of the packet.
-            const isoTimestamp = parsed.uplink_message.decoded_payload.time
-                                ?? parsed.received_at;
-
-            // Invoke the SIF data handler with the
-            // pre-processed incoming data.
-            handler(
-                "data/ingest/passthrough",
-                username,
-                appName,
-                {
-                    time: new Date(isoTimestamp).getTime() / 1000,
-                    device: device,
-                    metadata: parsed.uplink_message.decoded_payload.metadata ?? {},
-                    payload: parsed.uplink_message.decoded_payload.payload ?? {}
-                }
-            );
+                // Invoke the SIF data handler with the
+                // pre-processed incoming data.
+                handler(
+                    "data/ingest/passthrough",
+                    username,
+                    appName,
+                    {
+                        time: new Date(isoTimestamp).getTime() / 1000,
+                        device: device,
+                        metadata: payload.metadata ?? {},
+                        payload: payload.payload ?? {}
+                    }
+                );
+            });
             
         } catch(err) {
             console.error(err);
